@@ -1,16 +1,85 @@
 ---
-title: "Project proposal"
-author: "Team name"
+title: "Final Project proposal"
+author: "Louis Quigley"
 output: html_document
 ---
 
-```{r load-packages, message = FALSE}
+```{r load-packages, message = FALSE, echo=F}
 library(tidyverse)
 library(broom)
+library(skimr)
 ```
 
 ## 1. Data
+For this project, I will be evaluating how vegetation condition, represented by satellite-derived NDVI, varies with water table levels, represented by modeled water table depth (WTD), across Southern Africa. 
+
+Soil moisture and groundwater levels both vary due to atmospheric water flux. However, these systems receive, store, and release water at different rates depending on environmental conditions. Because of this, atmospheric water flux affects each system differently. 
+
+Understanding how soil moisture and groundwater vary under varying atmospheric water flux and hydroclimate conditions has impacts on water supply, agriculture, and hydropower generation.  
+
+To study the changes in soil moisture, I use NDVI as a proxy for soil moisture variability. This approach has two advantages. First, photosynthetic activity and vegetation greenness correlates to soil moisture variability, making it a meaningful proxy. Secondly, high-resolution datasets at continental scales are widely available through multi-spectral satellite programs such as AVHRR and MODIS. In this study, I will use NDVI derived from the STFLNDVI and MODIS NDVI datasets. Combining these global datasets covers a temporal range of 1982-2024 at 30 arcsecond monthly resolution. 
+
+The Water Table Model (WTM) is a large-scale physically-based coupled surface-subsurface water model. It is capable of simulating the continental-scale hydrodynamics of lakes, runoff, and groundwater simultaneously from decadal to millenial time scales. Using climate forcing data from the TraCE-21ka II and TerraClimate datasets, the WTM simulates WTD changes from 1982-2024 at 30 arcsecond monthly resolution, overlapping the NDVI timeseries, allowing statistical comparison between the datasets. 
+
+Additionally, to compare the relationship between NDVI and WTD, both variables are expressed as deviations from their long-term mean. This allows a comparison of variables across different hydroclimates. 
+
+To evaluate the relationship between NDVI and WTD, my main research questions are (1) what is the average anomaly NDVI and WTD anomaly in the study region, and what is the uncertainty in the estimates, and (2) does mean WTD anomaly differ between months with high versus low NDVI anomaly. 
 
 ## 2. Exploratory Visualization
+The following is a exploratory analysis of modern NDVI data from the STFLNDVI dataset from 1982-1999 and paleoclimate WTD data representing groundwater conditions in year 1000. This exploratory visualization is meant for demonstration and once the modern WTD data is compplete, a full timeseries comparison is possible. 
+
+First NDVI and WTD are standardized according to their long-term mean
+```{r load-and-standardize-data, include=F}
+data <- read_csv("../data/ndvi_wtd_timeseries.csv") %>%
+  mutate(
+    ndvi_anom = (ndvi - mean(ndvi, na.rm = T)) / sd(ndvi, na.rm = T),
+    wtd_anom  = (wtd - mean(wtd,  na.rm = T)) / sd(wtd, na.rm = T)
+  )
+```
+
+```{r glimpse-data, echo=F, results="markup"}
+glimpse(data)
+```
+
+```{r plot-ndvi-histogram, fig.width=5.5, fig.height=3.2}
+ggplot(data, aes(x=ndvi_anom))+
+  geom_histogram(bins=30)+
+  theme_get()+
+  labs(
+    x = "NDVI anomaly",
+    y= "Count", 
+    title = "Distribution of NDVI anomalies"
+  )
+```
+
+*The histogram shows a left skew. The peak occurs just below 1, meaning a large chunk of the NDVI values are just below 1 SD above the mean. In contrast, when NDVI values are below the mean, they can be greater than 2 SD below the mean. These extremely low NDVI values could be due to low precipitation or high air temperature as much of the region is arid and drought prone.*
+
+```{r plot-wtd-histogram, fig.width=5.5, fig.height=3.2}
+ggplot(data, aes(x=wtd_anom))+
+  geom_histogram(bins=30)+
+  theme_get()+
+  labs(
+    x = "WTD anomaly",
+    y= "Count", 
+    title = "Distribution of WTD anomalies"
+  )
+```
+
+*This histogram suggests WTDs are more normally distributed around the mean than NDVI. This could be due to groundwater levels responding more gradually to hydroclimate inputs and has a tendancy towards the mean.*
 
 ## 3. Possible question and method
+
+Outcome and predictor variables
+Response variable: WTD anomaly
+Explanatory variable: NDVI anomaly group
+
+My main research questions are:
+#Question 1:
+What is the mean NDVI and WTD for the study region during the study period and what is the uncertainty of that estimate? 
+To answer this question, I will estimate the mean NDVI and WTD and construct a 95% confidence interval using sample means and standard errors. 
+
+#Question 2: 
+Does mean WTD anomaly differ between months with high and low NDVI anomalies? 
+This question is evaluated using a two-sample t-test to compare mean WTD with high and low NDVI groups. High/low NDVI is defined as NDVI anomaly values above or below the median NDVI anomaly. 
+
+If there is time, I can additionaly divide NDVI into three groups (low, intermediate, and high) and use a one-way ANOVA to test whether mean WTD differs across multiple vegetation condition categories. 
