@@ -43,7 +43,7 @@ glimpse(data)
 
 ```{r plot-ndvi-histogram, fig.width=5.5, fig.height=3.2}
 ggplot(data, aes(x=ndvi_anom))+
-  geom_histogram(bins=30)+
+  geom_histogram(bins=30, fill="forestgreen",color="black")+
   theme_get()+
   labs(
     x = "NDVI anomaly",
@@ -52,11 +52,11 @@ ggplot(data, aes(x=ndvi_anom))+
   )
 ```
 
-*The histogram shows a left skew. The peak occurs just below 1, meaning a large chunk of the NDVI values are just below 1 SD above the mean. In contrast, when NDVI values are below the mean, they can be greater than 2 SD below the mean. These extremely low NDVI values could be due to low precipitation or high air temperature as much of the region is arid and drought prone.*
+*The histogram shows a left skew. The peak occurs just below 1, meaning a large chunk of the NDVI values are just below 1 SD above the mean. In contrast, when NDVI values are below the mean, they can be greater than 2 SD below the mean. These extremely low NDVI values could be due to low precipitation or high air temperature as much of the region is arid and drought prone.* 
 
 ```{r plot-wtd-histogram, fig.width=5.5, fig.height=3.2}
 ggplot(data, aes(x=wtd_anom))+
-  geom_histogram(bins=30)+
+  geom_histogram(bins=30, fill="steelblue",color="black")+
   theme_get()+
   labs(
     x = "WTD anomaly",
@@ -65,20 +65,21 @@ ggplot(data, aes(x=wtd_anom))+
   )
 ```
 
-*This histogram suggests WTDs are more normally distributed around the mean than NDVI. This could be due to groundwater levels responding more gradually to hydroclimate inputs and has a tendancy towards the mean.*
+*This histogram suggests WTDs are more normally distributed around the mean than NDVI. This could be due to groundwater levels responding more gradually to hydroclimate inputs and has a tendancy towards the mean. Additionally there is a greater spread than NDVI where some WTD values are up to three SD away from the mean*
 
 ## 3. Possible question and method
 
-Outcome and predictor variables
+Outcome and predictor variables are:
 Response variable: WTD anomaly
 Explanatory variable: NDVI anomaly group
 
 My main research questions are:
-#Question 1:
+
+Question 1:
 What is the mean NDVI and WTD for the study region during the study period and what is the uncertainty of that estimate? 
 To answer this question, I will estimate the mean NDVI and WTD and construct a 95% confidence interval using sample means and standard errors. 
 
-#Question 2: 
+Question 2: 
 Does mean WTD anomaly differ between months with high and low NDVI anomalies? 
 This question is evaluated using a two-sample t-test to compare mean WTD with high and low NDVI groups. High/low NDVI is defined as NDVI anomaly values above or below the median NDVI anomaly. 
 
