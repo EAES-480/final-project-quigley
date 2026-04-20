@@ -10,6 +10,12 @@ library(broom)
 library(skimr)
 ```
 
+> GM GRADE: 18.5/20 - excellent work!
+
+> Description: 7.5/8 - it's not clear to me how the year 1000 and modern data/model simulations are being used in the exploratory analysis. make sure that's clear later.
+> Content: 9/10 - a third question may be good to try to intepret something about the location or cause.
+> Quailty: 2/2
+
 ## 1. Data
 For this project, I will be evaluating how vegetation condition, represented by satellite-derived NDVI, varies with water table levels, represented by modeled water table depth (WTD), across Southern Africa. 
 
