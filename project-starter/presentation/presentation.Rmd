@@ -1,12 +1,10 @@
 ---
-title: "Presentation title"
-subtitle: "Presentation subtitle (if any)"
-author: "Team name <br> Names of team members"
-institute: "University of Illinois at Chicago"
+title: "Evaluating Vegetation and Groundwater in Southern Africa"
+author: "Louis Quigley"
+institute: "University of Illinois Chicago"
 date: "`r Sys.Date()`"
 output:
   xaringan::moon_reader:
-    css: xaringan-themer.css
     lib_dir: libs
     nature:
       ratio: "16:9"
@@ -15,164 +13,561 @@ output:
       countIncrementalSlides: false
 ---
 
-```{r load-packages, include = FALSE}
-# Add any additional packages you need to this chunk
+```{r load-packages, include=FALSE}
 library(tidyverse)
-library(tidymodels)
-library(palmerpenguins)
 library(knitr)
-library(xaringanthemer)
+library(lubridate)
+library(broom)
 ```
 
 ```{r setup, include=FALSE}
-# For better figure resolution
-knitr::opts_chunk$set(fig.retina = 3, dpi = 300, fig.width = 6, fig.asp = 0.618, out.width = "80%")
-```
-
-```{r load-data, include=FALSE}
-# Load your data here
-```
-
-```{r}
-style_xaringan(
-  title_slide_background_image = "img/confetti.jpg"
+knitr::opts_chunk$set(
+  fig.retina = 3,
+  dpi = 300,
+  fig.width = 6,
+  fig.asp = 0.618,
+  out.width = "80%",
+  message = FALSE,
+  warning = FALSE
 )
 ```
 
+```{r load-data, include=F}
+# Load data
+data <- read_csv("SVI_SGI_timeseries.csv", show_col_types = FALSE)
 
-class: center, middle
+# Convert date from YYYYMM format to a real date
+data <- data %>%
+  mutate(
+    date = as.character(date),
+    year = as.numeric(substr(date, 1, 4)),
+    month = as.numeric(substr(date, 5, 6)),
+    date = ymd(paste(year, month, "01", sep = "-"))
+  ) %>%
+  arrange(date) %>%
+  drop_na(SVI, SGI)
 
-## A statement of the overall goal / research question
+# Check data
+glimpse(data)
+summary(data)
+```
+
+```{r confidence-intervals, include=F}
+# Bootstrap confidence intervals for mean SVI and SGI
+
+set.seed(480)
+B <- 1000
+
+boot_ci_mean <- function(x, B = 1000) {
+  x <- x[!is.na(x)]
+  
+  boot_means <- replicate(
+    B,
+    mean(sample(x, size = length(x), replace = TRUE))
+  )
+  
+  ci <- quantile(boot_means, probs = c(0.025, 0.975))
+  
+  list(
+    n = length(x),
+    mean = mean(x),
+    sd = sd(x),
+    se = sd(x) / sqrt(length(x)),
+    ci_lower = ci[1],
+    ci_upper = ci[2],
+    boot_means = boot_means
+  )
+}
+
+# Run bootstrap for each index
+svi_boot <- boot_ci_mean(data$SVI, B = B)
+sgi_boot <- boot_ci_mean(data$SGI, B = B)
+
+# Table for display
+ci_display <- tibble(
+  Index = c("SVI", "SGI"),
+  n = c(svi_boot$n, sgi_boot$n),
+  `Mean anomaly` = c(svi_boot$mean, sgi_boot$mean),
+  SD = c(svi_boot$sd, sgi_boot$sd),
+  SE = c(svi_boot$se, sgi_boot$se),
+  `95% CI lower` = c(svi_boot$ci_lower, sgi_boot$ci_lower),
+  `95% CI upper` = c(svi_boot$ci_upper, sgi_boot$ci_upper)
+) %>%
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+```
+
+```{r t-tests, include=FALSE}
+#two-sample t-tests: 1982-1999 vs. 2000-2024
+
+data_period <- data %>%
+  mutate(
+    period = case_when(
+      year >= 1982 & year <= 1999 ~ "1982-1999",
+      year >= 2000 & year <= 2024 ~ "2000-2024",
+      TRUE ~ NA_character_
+    ),
+    period = factor(period, levels = c("1982-1999", "2000-2024"))
+  ) %>%
+  drop_na(period)
+
+# SVI two-sample t-test
+
+svi_x1 <- data_period %>%
+  filter(period == "1982-1999") %>%
+  pull(SVI)
+
+svi_x2 <- data_period %>%
+  filter(period == "2000-2024") %>%
+  pull(SVI)
+
+svi_xbar1 <- mean(svi_x1, na.rm = TRUE)
+svi_xbar2 <- mean(svi_x2, na.rm = TRUE)
+
+svi_s1 <- sd(svi_x1, na.rm = TRUE)
+svi_s2 <- sd(svi_x2, na.rm = TRUE)
+
+svi_n1 <- sum(!is.na(svi_x1))
+svi_n2 <- sum(!is.na(svi_x2))
+
+svi_mean_diff <- svi_xbar1 - svi_xbar2
+
+svi_se_diff <- sqrt((svi_s1^2 / svi_n1) + (svi_s2^2 / svi_n2))
+
+svi_t_stat <- svi_mean_diff / svi_se_diff
+
+svi_df_welch <- ((svi_s1^2 / svi_n1 + svi_s2^2 / svi_n2)^2) /
+  (((svi_s1^2 / svi_n1)^2 / (svi_n1 - 1)) +
+     ((svi_s2^2 / svi_n2)^2 / (svi_n2 - 1)))
+
+svi_p_value <- 2 * pt(-abs(svi_t_stat), df = svi_df_welch)
+
+svi_ttest_manual <- tibble(
+  index = "SVI",
+  mean_1982_1999 = svi_xbar1,
+  mean_2000_2024 = svi_xbar2,
+  mean_diff = svi_mean_diff,
+  se_diff = svi_se_diff,
+  t_stat = svi_t_stat,
+  df_welch = svi_df_welch,
+  p_value = svi_p_value
+)
+
+# Compare with automated t.test()
+svi_ttest_auto <- t.test(svi_x1, svi_x2)
+
+# SGI two-sample t-test
+
+sgi_x1 <- data_period %>%
+  filter(period == "1982-1999") %>%
+  pull(SGI)
+
+sgi_x2 <- data_period %>%
+  filter(period == "2000-2024") %>%
+  pull(SGI)
+
+sgi_xbar1 <- mean(sgi_x1, na.rm = TRUE)
+sgi_xbar2 <- mean(sgi_x2, na.rm = TRUE)
+
+sgi_s1 <- sd(sgi_x1, na.rm = TRUE)
+sgi_s2 <- sd(sgi_x2, na.rm = TRUE)
+
+sgi_n1 <- sum(!is.na(sgi_x1))
+sgi_n2 <- sum(!is.na(sgi_x2))
+
+sgi_mean_diff <- sgi_xbar1 - sgi_xbar2
+
+sgi_se_diff <- sqrt((sgi_s1^2 / sgi_n1) + (sgi_s2^2 / sgi_n2))
+
+sgi_t_stat <- sgi_mean_diff / sgi_se_diff
+
+sgi_df_welch <- ((sgi_s1^2 / sgi_n1 + sgi_s2^2 / sgi_n2)^2) /
+  (((sgi_s1^2 / sgi_n1)^2 / (sgi_n1 - 1)) +
+     ((sgi_s2^2 / sgi_n2)^2 / (sgi_n2 - 1)))
+
+sgi_p_value <- 2 * pt(-abs(sgi_t_stat), df = sgi_df_welch)
+
+sgi_ttest_manual <- tibble(
+  index = "SGI",
+  mean_1982_1999 = sgi_xbar1,
+  mean_2000_2024 = sgi_xbar2,
+  mean_diff = sgi_mean_diff,
+  se_diff = sgi_se_diff,
+  t_stat = sgi_t_stat,
+  df_welch = sgi_df_welch,
+  p_value = sgi_p_value
+)
+
+# compare with t.test()
+sgi_ttest_auto <- t.test(sgi_x1, sgi_x2)
+
+# display table for slides
+
+ttest_display <- bind_rows(
+  svi_ttest_manual,
+  sgi_ttest_manual
+) %>%
+  mutate(
+    across(
+      c(mean_1982_1999, mean_2000_2024, mean_diff, se_diff, t_stat, df_welch),
+      \(x) round(x, 3)
+    ),
+    p_value = format.pval(p_value, digits = 3)
+  ) %>%
+  rename(
+    `Index` = index,
+    `Mean 1982-1999` = mean_1982_1999,
+    `Mean 2000-2024` = mean_2000_2024,
+    `Mean difference` = mean_diff,
+    `SE difference` = se_diff,
+    `t statistic` = t_stat,
+    `df` = df_welch,
+    `p-value` = p_value
+  )
+```
+
+```{r same-month-linear-regression, include=FALSE}
+# Same-month linear regression
+
+df_lm <- data %>%
+  select(date, SVI, SGI) %>%
+  drop_na(SVI, SGI)
+
+lm_same_month <- lm(SGI ~ SVI, data = df_lm)
+
+same_month_stats <- tidy(lm_same_month) %>%
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+same_month_fit <- glance(lm_same_month)
+
+same_month_slope <- tidy(lm_same_month) %>%
+  filter(term == "SVI")
+
+same_month_p <- same_month_slope$p.value
+```
+
+```{r lagged-regression, include=FALSE}
+# Lagged linear regression: -12 to +12 months
+
+run_lagged_model <- function(lag_months, data) {
+  
+  if (lag_months > 0) {
+    lagged_data <- data %>%
+      mutate(SGI_shifted = lead(SGI, lag_months))
+  }
+  
+  if (lag_months < 0) {
+    lagged_data <- data %>%
+      mutate(SGI_shifted = lag(SGI, abs(lag_months)))
+  }
+  
+  if (lag_months == 0) {
+    lagged_data <- data %>%
+      mutate(SGI_shifted = SGI)
+  }
+  
+  lagged_data <- lagged_data %>%
+    drop_na(SVI, SGI_shifted)
+  
+  model <- lm(SGI_shifted ~ SVI, data = lagged_data)
+  
+  tidy(model) %>%
+    filter(term == "SVI") %>%
+    mutate(
+      lag_months = lag_months,
+      r_squared = glance(model)$r.squared,
+      rmse = glance(model)$sigma,
+      n = nrow(lagged_data)
+    )
+}
+
+lag_results <- map_dfr(
+  -12:12,
+  ~ run_lagged_model(lag_months = .x, data = data)
+)
+
+best_lag <- lag_results %>%
+  slice_max(r_squared, n = 1, with_ties = FALSE)
+
+best_lag_value <- best_lag$lag_months[1]
+
+best_lag_display <- best_lag %>%
+  transmute(
+    `Best lag` = lag_months,
+    `R²` = round(r_squared, 3),
+    `RMSE` = round(rmse, 3),
+    `n` = n
+  )
+```
+
+# Research question
+
+.pull-left[
+## How are vegetation and groundwater drought anomalies related in Southern Africa?
+
+**Sub-questions**
+
+- Are the means of standardized indices centered near normal?
+- Did average conditions change between 1982–1999 and 2000–2024?
+- Is there a lagged relationship between SVI and SGI?
+]
+
+.pull-right[
+.center[
+**Significance**
+
+Vegetation and groundwater are important environmental resources. Both NDVI and water table depth are climate-sensitive, but they may respond to drought on different timescales.
+
+Understanding their relationship can help evaluate compound drought impacts.
+]
+]
 
 ---
 
-class: inverse, center, middle
+# Data
 
-# Section title
+**Monthly time series of standardized NDVI and water table depths (WTD) from 1982–2024**  
+**515 total observations**
 
----
-
-# Hello World
-
-- Click the `Knit` button to compile your presentation
-
-- Make sure to commit and push all resulting files to your GitHub repo
-
----
-
-class: inverse, middle, center
-
-# Using xaringan
-
----
-
-# xaringan
-
-- The presentation is created using the `xaringan` package
-
-- Use `---` to separate slides and `--` for incremental builds
+| System | Variable | Standardized Variable |
+|---|---|---|
+| Vegetation | NDVI | Standardized Vegetation Index (SVI) |
+| Groundwater | Modeled WTD | Standardized Groundwater Index (SGI) |
 
 --
 
-- Like this
+Standardization was done via a non-parametric normal scores transformation:
+
+- mean becomes 0
+- expresses variables as number of SD above or below the mean
+
+<br>
+
+NDVI -> Standardized Vegetation Index (SVI)
+WTD -> Standardized Groundwater Index (SGI)
 
 ---
 
-# Layouts
+# Statistical methods
 
-You can use plain text
+| Question | Method |
+|---|---|
+| What is the mean anomaly across 1982–2024? | Bootstrap 95% confidence interval | 
+| Did means change after 2000? | Two-sample t-test |
+| Is SVI linearly related to SGI? | Linear regression | 
 
-- or bullet points
+-The lagged analysis repeats the same linear regression after shifting SGI from SVI by -12 to +12 months. 
 
+---
+
+# Mean anomaly estimates
 .pull-left[
-or text in two columns $^*$
+```{r svi-bootstrap-plot, echo=FALSE, fig.width=4.5, fig.asp=0.8, out.width="100%"}
+ggplot(tibble(boot_mean = svi_boot$boot_means), aes(x = boot_mean)) +
+  geom_histogram(bins = 40, alpha = 0.8) +
+  geom_vline(
+    xintercept = c(svi_boot$ci_lower, svi_boot$ci_upper),
+    color = "red",
+    linewidth = 1
+  ) +
+  geom_vline(
+    xintercept = svi_boot$mean,
+    linetype = "dashed"
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Bootstrap mean SVI",
+    y = "Count",
+    title = "SVI"
+  )
+```
 ]
+
 .pull-right[
-- like
-- this
+```{r sgi-bootstrap-plot, echo=FALSE, fig.width=4.5, fig.asp=0.8, out.width="100%"}
+  ggplot(tibble(boot_mean = sgi_boot$boot_means), aes(x = boot_mean)) +
+  geom_histogram(bins = 40, alpha = 0.8) +
+  geom_vline(
+    xintercept = c(sgi_boot$ci_lower, sgi_boot$ci_upper),
+    color = "red",
+    linewidth = 1
+  ) +
+  geom_vline(
+    xintercept = sgi_boot$mean,
+    linetype = "dashed"
+  ) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Bootstrap mean SGI",
+    y = "Count",
+    title = "SGI"
+  )
+```
 ]
 
 .footnote[
-[*] And add footnotes
+The black dashed line represents the bootstrap mean. Red vertical lines show the bootstrap 95% confidence interval.
 ]
 
 ---
 
-# Code
+# Mean anomaly estimates: summary table
 
-```{r boring-regression}
-# a boring regression
-model <- lm(dist ~ speed, data = cars)
-tidy(model)
-glance(model)
+```{r ci-table, echo=FALSE}
+kable(
+  ci_display,
+  format = "html",
+  caption = "Bootstrap 95% confidence intervals for mean SVI and SGI"
+)
 ```
 
 ---
 
-# Plots
-
-```{r recode-species, echo = FALSE}
-# In this chunk I'm doing a bunch of analysis that I don't want to present 
-# in my slides. But I need the resulting data frame for a plot I want to present.
-iris_modified <- iris %>%
-  mutate(Species = fct_other(Species, keep = "setosa"))
+# Did average conditions change after 1999?
+  
+```{r ttest-table, echo=FALSE}
+kable(
+  ttest_display,
+  format = "html",
+  caption = "two-sample t-test: 1982–1999 vs. 2000–2024"
+)
 ```
+--
 
-```{r plot-iris, echo = FALSE}
-# Code hidden with echo = FALSE
-# Uses modified iris dataset from previous chunk
-# Play around with height and width until you're happy with the look
-ggplot(data = iris_modified, mapping = aes(x = Sepal.Width, y = Sepal.Length, color = Species)) +
-  geom_point() + 
-  theme_minimal() # theme options: https://ggplot2.tidyverse.org/reference/ggtheme.html
-```
+**Interpretation**
+
+- t-test evaluates whether the difference in the period means is equal to zero (null-hypothesis)
+- Mean SVI was significantly higher in 1982–1999 than in 2000–2024
+- Mean SGI did not differ significantly between periods
 
 ---
-
-## Plot and text
+# Visualizing the two-period comparison
 
 .pull-left[
-- Some text
-- goes here
+```{r svi-period-boxplot, echo=FALSE, fig.width=4.5, fig.asp=0.8, out.width="100%"}
+ggplot(data_period, aes(x = period, y = SVI, fill = period)) +
+  geom_boxplot(alpha = 0.8) +
+  scale_fill_manual(values = c("1982-1999" = "forestgreen",
+  "2000-2024"="darkorange"
+  )) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = NULL,
+    y = "SVI",
+    title = "SVI by period"
+  ) +
+  theme(legend.position = "none")
+```
+]
+
+.pull-right[
+```{r sgi-period-boxplot, echo=FALSE, fig.width=4.5, fig.asp=0.8, out.width="100%"}
+ggplot(data_period, aes(x = period, y = SGI, fill = period)) +
+  geom_boxplot(alpha = 0.8) +
+  scale_fill_manual(values = c(
+    "1982-1999" = "steelblue",
+    "2000-2024" = "darkorange"
+  ))+
+  theme_classic(base_size = 14) +
+  labs(
+    x = NULL,
+    y = "SGI",
+    title = "SGI by period"
+  ) +
+  theme(legend.position = "none")
+```
+]
+---
+
+# Concurrent SVI–SGI relationship
+
+.pull-left[
+```{r same-month-scatter-smooth, echo=FALSE, fig.width=4.5, fig.asp=0.8, out.width="100%"}
+ggplot(df_lm, aes(x = SVI, y = SGI)) +
+  geom_point(size = 2, alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "SVI",
+    y = "SGI",
+    title = "Scatterplot with linear fit"
+  )
+```
+]
+
+.pull-right[
+| Statistic | Value |
+|---|---:|
+| R² | `r round(same_month_fit$r.squared, digits = 4)` |
+
+<br>
+SVI explains `r round(same_month_fit$r.squared * 100, 2)`% of the same-month variation in SGI.
+<br>
+
+The same-month relationship is very weak :(
+<br>
+--
+But that's ok!
+]
+---
+
+# Does the relationship depend on timing?
+Linear regression repeated on shifted SGI and SVI
+<br>
+
+Shifted SGI -12 to +12 months
+
+<br>
+
+--
+positive lag means SVI leads SGI
+<br>
+Negative lag means SVI follows SGI
+---
+
+# Lagged SVI–SGI model fit
+
+.pull-left[
+```{r lag-r2-plot, echo=FALSE, fig.width=4.8, fig.asp=0.8, out.width="100%"}
+ggplot(lag_results, aes(x = lag_months, y = r_squared)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  geom_vline(xintercept = best_lag_value, linetype = "dashed") +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Lag in months\nPositive = SVI leads SGI",
+    y = expression(R^2),
+    title = expression(R^2 ~ "across monthly lags")
+  )
+```
 ]
 .pull-right[
-```{r warning=FALSE, out.width="100%", fig.width=4, echo=FALSE}
-# see how I changed out.width and fig.width from defaults
-# to make the figure bigger
-ggplot(penguins, aes(x = bill_length_mm, y = species, color = species)) +
-  geom_boxplot() +
-  theme_minimal()
-```
+| Statistic | Value |
+|---|---:|
+| Best lag | `r best_lag_value` months |
+| R² | `r round(best_lag$r_squared, digits = 4)` |
+
+Changes in SVI most likely precedes SGI by two months
+<br>
+
+Low R² could be due to averaging a large area
 ]
 
 ---
 
-# Tables
+# Key takeaways
 
-If you want to generate a table, make sure it is in the HTML format (instead of Markdown or other formats), e.g.,
+--
 
-```{r iris-table, echo = FALSE}
-kable(head(iris), format = "html")
-```
+1. Distribution of SVI and SGI are centered close to their long-term mean
 
----
+--
 
-# Images
+2. Mean SVI was higher in 1982–1999 than in 2000–202
 
-```{r castle, echo = FALSE, out.width = "60%", fig.align = "center", fig.cap = "Image credit: Photo by Enjoy Illinois."}
-include_graphics("img/chicago-fall.jpeg")
-```
+--
 
+3. Mean SGI did not differ significantly between periods.
 
----
+--
 
-# Feeling adventurous?
-
-- Want to find out more about `xaringan`? See https://slides.yihui.name/xaringan/#1.
-
-- You are welcomed to use the default styling of the slides. In fact, that's what I expect majority of you will do. You will differentiate yourself with the content of your presentation.
-
-- But some of you might want to play around with slide styling. The 
-`xaringanthemer` provides some solutions for this that: https://pkg.garrickadenbuie.com/xaringanthemer.
-
-- And if you want more bells and whistles, there is also `xaringanExtra`: https://pkg.garrickadenbuie.com/xaringanExtra.
+4. The relationship peaked at `r best_lag_value` months, but R² was low
